@@ -2,7 +2,7 @@
 name = "claude-token-cli"
 version = "0.1.0"
 edition = "2021"
-rust-version = "1.78"
+rust-version = "1.85"
 authors = ["2lab.ai"]
 license = "MIT OR Apache-2.0"
 description = "Standalone CLI for managing Claude Code OAuth credentials: Keychain <-> file bridging, 5h/7d quota, periodic refresh, multi-slot."
@@ -47,8 +47,6 @@ rand = "0.8"
 [dev-dependencies]
 wiremock = "0.6"
 tokio = { version = "1", features = ["macros", "rt-multi-thread"] }
-assert_cmd = "2"
-predicates = "3"
 tempfile = "3"
 
 [profile.release]
