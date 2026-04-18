@@ -27,7 +27,8 @@ pub struct Paths {
     pub state_lock: PathBuf,
 }
 
-/// Optional path overrides for tests.
+/// Optional path overrides. Populated from env vars in production (via
+/// [`PathOverrides::from_env`]) or injected directly by tests.
 #[derive(Default, Debug, Clone)]
 pub struct PathOverrides {
     pub config_dir: Option<PathBuf>,
@@ -35,9 +36,40 @@ pub struct PathOverrides {
     pub home_dir: Option<PathBuf>,
 }
 
-/// Resolve paths using platform defaults.
+impl PathOverrides {
+    /// Read overrides from environment variables. Each non-empty variable
+    /// opts out of the corresponding platform default:
+    ///
+    /// - `CLAUDE_TOKEN_CONFIG_DIR` — overrides the config dir (slots.json lives here)
+    /// - `CLAUDE_TOKEN_DATA_DIR` — overrides the data dir (journal, hmac key, locks, keystore)
+    /// - `CLAUDE_TOKEN_HOME_DIR` — overrides `$HOME`, used only to locate
+    ///   `.claude/.credentials.json`
+    ///
+    /// Intended for Docker/Kubernetes bind mounts, CI smoke tests, and
+    /// sandboxed environments where platform defaults aren't writable.
+    pub fn from_env() -> Self {
+        fn var(name: &str) -> Option<PathBuf> {
+            std::env::var_os(name).and_then(|v| {
+                let s: PathBuf = v.into();
+                if s.as_os_str().is_empty() {
+                    None
+                } else {
+                    Some(s)
+                }
+            })
+        }
+        Self {
+            config_dir: var("CLAUDE_TOKEN_CONFIG_DIR"),
+            data_dir: var("CLAUDE_TOKEN_DATA_DIR"),
+            home_dir: var("CLAUDE_TOKEN_HOME_DIR"),
+        }
+    }
+}
+
+/// Resolve paths using platform defaults, overridden by env variables when
+/// present. See [`PathOverrides::from_env`] for the recognised variables.
 pub fn resolve_paths() -> Result<Paths> {
-    resolve_paths_with_overrides(&PathOverrides::default())
+    resolve_paths_with_overrides(&PathOverrides::from_env())
 }
 
 /// Resolve paths with optional overrides (used in tests).
@@ -178,6 +210,59 @@ mod tests {
             .join(".claude")
             .join("claude-token-cli.json.moved")
             .exists());
+    }
+
+    #[test]
+    fn env_overrides_from_env() {
+        // env is process-global. Guard all three variables together in one
+        // test to avoid parallel-test races on the same env keys.
+        struct Guard(Vec<(&'static str, Option<String>)>);
+        impl Drop for Guard {
+            fn drop(&mut self) {
+                for (k, v) in &self.0 {
+                    match v {
+                        Some(val) => std::env::set_var(k, val),
+                        None => std::env::remove_var(k),
+                    }
+                }
+            }
+        }
+        let _g = Guard(vec![
+            (
+                "CLAUDE_TOKEN_CONFIG_DIR",
+                std::env::var("CLAUDE_TOKEN_CONFIG_DIR").ok(),
+            ),
+            (
+                "CLAUDE_TOKEN_DATA_DIR",
+                std::env::var("CLAUDE_TOKEN_DATA_DIR").ok(),
+            ),
+            (
+                "CLAUDE_TOKEN_HOME_DIR",
+                std::env::var("CLAUDE_TOKEN_HOME_DIR").ok(),
+            ),
+        ]);
+
+        // (1) Populated: every var propagates into the struct.
+        let tmp = tempfile::tempdir().unwrap();
+        let cfg = tmp.path().join("cfg");
+        let data = tmp.path().join("data");
+        let home = tmp.path().join("home");
+        std::env::set_var("CLAUDE_TOKEN_CONFIG_DIR", &cfg);
+        std::env::set_var("CLAUDE_TOKEN_DATA_DIR", &data);
+        std::env::set_var("CLAUDE_TOKEN_HOME_DIR", &home);
+        let ov = PathOverrides::from_env();
+        assert_eq!(ov.config_dir.as_deref(), Some(cfg.as_path()));
+        assert_eq!(ov.data_dir.as_deref(), Some(data.as_path()));
+        assert_eq!(ov.home_dir.as_deref(), Some(home.as_path()));
+
+        // (2) Empty strings are treated as unset.
+        std::env::set_var("CLAUDE_TOKEN_CONFIG_DIR", "");
+        std::env::remove_var("CLAUDE_TOKEN_DATA_DIR");
+        std::env::remove_var("CLAUDE_TOKEN_HOME_DIR");
+        let ov = PathOverrides::from_env();
+        assert!(ov.config_dir.is_none(), "empty string must be ignored");
+        assert!(ov.data_dir.is_none());
+        assert!(ov.home_dir.is_none());
     }
 
     #[test]
