@@ -343,15 +343,26 @@ impl KeychainStore for FileKeychain {
     }
 }
 
+/// Environment variable that forces the file-backed backend on every
+/// platform, including macOS. Set to a non-empty value to opt in. Useful on
+/// MDM-locked macOS systems where `security(1)` is restricted, in
+/// Docker-on-mac, and for local smoke tests where going through the login
+/// Keychain would otherwise require a GUI prompt.
+pub const FORCE_FILE_BACKEND_ENV: &str = "CLAUDE_TOKEN_FILE_BACKEND";
+
 /// Default store for the current platform.
 ///
-/// - macOS: `security(1)` CLI against the login keychain.
-/// - Other: persistent disk store under `${data_dir}/keystore/`, so inactive
-///   slot blobs survive across invocations.
+/// - `CLAUDE_TOKEN_FILE_BACKEND=1` (any non-empty value): persistent disk
+///   store under `${data_dir}/keystore/`, regardless of platform.
+/// - macOS otherwise: `security(1)` CLI against the login keychain.
+/// - Other otherwise: persistent disk store under `${data_dir}/keystore/`.
 pub fn default_store(paths: &Paths) -> Box<dyn KeychainStore> {
+    if std::env::var_os(FORCE_FILE_BACKEND_ENV).is_some_and(|v| !v.is_empty()) {
+        return Box::new(FileKeychain::new(paths.data_dir.join("keystore")));
+    }
+
     #[cfg(target_os = "macos")]
     {
-        let _ = paths; // unused on macOS
         Box::new(MacSecurityCli::new())
     }
     #[cfg(not(target_os = "macos"))]

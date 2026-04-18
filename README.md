@@ -104,6 +104,29 @@ On macOS, `config_dir` = `~/Library/Application Support/ai.2lab.claude-token-cli
 
 Legacy path `~/.claude/claude-token-cli.json` is auto-migrated on first run (the old path is renamed to `.moved`).
 
+### Environment overrides
+
+Each path slot can be redirected via an environment variable, for Docker/Kubernetes bind mounts, CI smoke tests, or sandboxed systems where the platform defaults aren't writable:
+
+| Variable | Overrides | Contents when set |
+|----------|-----------|-------------------|
+| `CLAUDE_TOKEN_CONFIG_DIR` | `config_dir` | `slots.json` |
+| `CLAUDE_TOKEN_DATA_DIR` | `data_dir` | `journal/`, `hmac.key`, `daemon.lock`, `.state.lock`, `keystore/` (non-mac only) |
+| `CLAUDE_TOKEN_HOME_DIR` | `$HOME` (only when locating `.claude/.credentials.json`) | `.claude/.credentials.json` |
+| `CLAUDE_TOKEN_FILE_BACKEND` | Keychain backend selection | When set to any non-empty value, forces the file-backed store under `${data_dir}/keystore/` even on macOS. Intended for MDM-locked systems, Docker-on-mac, and CI smoke tests. |
+
+Empty strings are treated as unset. Any variable you leave unset keeps the platform default.
+
+Example — run the CLI fully under `/tmp/ctcli`:
+
+```bash
+export CLAUDE_TOKEN_CONFIG_DIR=/tmp/ctcli/config
+export CLAUDE_TOKEN_DATA_DIR=/tmp/ctcli/data
+export CLAUDE_TOKEN_HOME_DIR=/tmp/ctcli/home
+mkdir -p /tmp/ctcli/home/.claude
+claude-token list
+```
+
 ## Out of scope (first PR)
 
 - `crates.io` publish
