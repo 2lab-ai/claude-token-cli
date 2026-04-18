@@ -6,6 +6,12 @@ use secrecy::SecretString;
 use wiremock::matchers::{method, path};
 use wiremock::{Mock, MockServer, ResponseTemplate};
 
+/// Build a blocking reqwest client.
+///
+/// **MUST be called from inside `spawn_blocking`**. `reqwest::blocking::Client`
+/// owns a tokio current-thread runtime internally; constructing it on the outer
+/// `#[tokio::test]` runtime causes its `Drop` to panic with
+/// "Cannot drop a runtime in a context where blocking is not allowed."
 fn build_client() -> reqwest::blocking::Client {
     oauth::default_client().unwrap()
 }
@@ -38,12 +44,14 @@ async fn refresh_happy_path() {
 
     let endpoint = format!("{}/v1/oauth/token", server.uri());
     let rt = SecretString::new("rt-old".to_string());
-    let client = build_client();
 
-    let token = tokio::task::spawn_blocking(move || oauth::refresh_to(&client, &endpoint, &rt))
-        .await
-        .unwrap()
-        .unwrap();
+    let token = tokio::task::spawn_blocking(move || {
+        let client = build_client();
+        oauth::refresh_to(&client, &endpoint, &rt)
+    })
+    .await
+    .unwrap()
+    .unwrap();
 
     // Apply to credentials and verify.
     let mut creds = Credentials::new_with_defaults("at-old", "rt-old");
@@ -77,12 +85,14 @@ async fn refresh_rotates_refresh_token() {
 
     let endpoint = format!("{}/v1/oauth/token", server.uri());
     let rt = SecretString::new("rt-old".to_string());
-    let client = build_client();
 
-    let token = tokio::task::spawn_blocking(move || oauth::refresh_to(&client, &endpoint, &rt))
-        .await
-        .unwrap()
-        .unwrap();
+    let token = tokio::task::spawn_blocking(move || {
+        let client = build_client();
+        oauth::refresh_to(&client, &endpoint, &rt)
+    })
+    .await
+    .unwrap()
+    .unwrap();
 
     use secrecy::ExposeSecret;
     #[allow(clippy::disallowed_methods)]
@@ -109,12 +119,14 @@ async fn refresh_400_body_is_scrubbed() {
 
     let endpoint = format!("{}/v1/oauth/token", server.uri());
     let rt = SecretString::new("rt-secret-xyz".to_string());
-    let client = build_client();
 
-    let err = tokio::task::spawn_blocking(move || oauth::refresh_to(&client, &endpoint, &rt))
-        .await
-        .unwrap()
-        .unwrap_err();
+    let err = tokio::task::spawn_blocking(move || {
+        let client = build_client();
+        oauth::refresh_to(&client, &endpoint, &rt)
+    })
+    .await
+    .unwrap()
+    .unwrap_err();
 
     assert!(matches!(err, OAuthError::Status { code: 400, .. }));
     let shown = format!("{err}");
@@ -145,11 +157,13 @@ async fn refresh_500_errors() {
 
     let endpoint = format!("{}/v1/oauth/token", server.uri());
     let rt = SecretString::new("rt".to_string());
-    let client = build_client();
 
-    let err = tokio::task::spawn_blocking(move || oauth::refresh_to(&client, &endpoint, &rt))
-        .await
-        .unwrap()
-        .unwrap_err();
+    let err = tokio::task::spawn_blocking(move || {
+        let client = build_client();
+        oauth::refresh_to(&client, &endpoint, &rt)
+    })
+    .await
+    .unwrap()
+    .unwrap_err();
     assert!(matches!(err, OAuthError::Status { code: 500, .. }));
 }

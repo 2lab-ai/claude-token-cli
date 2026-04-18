@@ -5,6 +5,12 @@ use secrecy::SecretString;
 use wiremock::matchers::{method, path};
 use wiremock::{Mock, MockServer, ResponseTemplate};
 
+/// Build a blocking reqwest client.
+///
+/// **MUST be called from inside `spawn_blocking`**. `reqwest::blocking::Client`
+/// owns a tokio current-thread runtime internally; constructing it on the outer
+/// `#[tokio::test]` runtime causes its `Drop` to panic with
+/// "Cannot drop a runtime in a context where blocking is not allowed."
 fn build_client() -> reqwest::blocking::Client {
     oauth::default_client().unwrap()
 }
@@ -41,12 +47,14 @@ async fn usage_200_parses_buckets() {
 
     let endpoint = format!("{}/api/oauth/usage", server.uri());
     let at = SecretString::new("at-ok".to_string());
-    let client = build_client();
 
-    let result = tokio::task::spawn_blocking(move || oauth::usage_from(&client, &endpoint, &at))
-        .await
-        .unwrap()
-        .unwrap();
+    let result = tokio::task::spawn_blocking(move || {
+        let client = build_client();
+        oauth::usage_from(&client, &endpoint, &at)
+    })
+    .await
+    .unwrap()
+    .unwrap();
     match result {
         UsageResult::Ok(snap) => {
             let five = snap.five_hour.unwrap();
@@ -71,12 +79,14 @@ async fn usage_401_returns_unauthorized() {
 
     let endpoint = format!("{}/api/oauth/usage", server.uri());
     let at = SecretString::new("at-bad".to_string());
-    let client = build_client();
 
-    let result = tokio::task::spawn_blocking(move || oauth::usage_from(&client, &endpoint, &at))
-        .await
-        .unwrap()
-        .unwrap();
+    let result = tokio::task::spawn_blocking(move || {
+        let client = build_client();
+        oauth::usage_from(&client, &endpoint, &at)
+    })
+    .await
+    .unwrap()
+    .unwrap();
     assert!(matches!(result, UsageResult::Unauthorized));
 }
 
@@ -122,11 +132,11 @@ async fn usage_401_then_refresh_then_200() {
     let usage_ep = format!("{}/api/oauth/usage", server.uri());
     let refresh_ep = format!("{}/v1/oauth/token", server.uri());
 
-    let client = build_client();
     let old_at = SecretString::new("at-old".to_string());
     let old_rt = SecretString::new("rt-old".to_string());
 
     let result = tokio::task::spawn_blocking(move || {
+        let client = build_client();
         let first = oauth::usage_from(&client, &usage_ep, &old_at)?;
         assert!(matches!(first, UsageResult::Unauthorized));
 
@@ -166,11 +176,11 @@ async fn usage_401_refresh_fails_keeps_secrets_clean() {
 
     let usage_ep = format!("{}/api/oauth/usage", server.uri());
     let refresh_ep = format!("{}/v1/oauth/token", server.uri());
-    let client = build_client();
     let at = SecretString::new("at-secret-xyz".to_string());
     let rt = SecretString::new("rt-secret-xyz".to_string());
 
     let err = tokio::task::spawn_blocking(move || {
+        let client = build_client();
         let first = oauth::usage_from(&client, &usage_ep, &at)?;
         assert!(matches!(first, UsageResult::Unauthorized));
         let err = oauth::refresh_to(&client, &refresh_ep, &rt).unwrap_err();

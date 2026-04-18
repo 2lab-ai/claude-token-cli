@@ -8,6 +8,7 @@
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
 
+#[cfg(target_os = "macos")]
 use crate::redact::scrub;
 
 /// Service name Claude Code itself uses when reading its credentials.
