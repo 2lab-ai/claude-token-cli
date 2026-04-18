@@ -1,4 +1,8 @@
 [toolchain]
-channel = "1.86.0"
+# Track stable so new transitive dev-deps (wiremock, reqwest, icu_*) that
+# bump their MSRV don't wedge CI. Stable is already what CI's
+# dtolnay/rust-toolchain@stable action installs — this file simply makes
+# contributor checkouts match.
+channel = "stable"
 components = ["rustfmt", "clippy"]
 profile = "minimal"

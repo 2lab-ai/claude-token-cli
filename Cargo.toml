@@ -2,7 +2,7 @@
 name = "claude-token-cli"
 version = "0.1.0"
 edition = "2021"
-rust-version = "1.86"
+rust-version = "1.88"
 authors = ["2lab.ai"]
 license = "MIT OR Apache-2.0"
 description = "Standalone CLI for managing Claude Code OAuth credentials: Keychain <-> file bridging, 5h/7d quota, periodic refresh, multi-slot."
