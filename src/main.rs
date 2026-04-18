@@ -116,7 +116,7 @@ fn main() -> Result<()> {
     config::migrate_legacy(&paths)?;
 
     let journal = Journal::open(&paths).context("open journal")?;
-    let kc = keychain::default_store();
+    let kc = keychain::default_store(&paths);
 
     // Best-effort replay.
     match replay::replay_all(&paths, kc.as_ref(), &journal) {

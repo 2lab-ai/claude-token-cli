@@ -6,7 +6,7 @@ use crate::commands::Format;
 use crate::config::Paths;
 use crate::credentials::Credentials;
 use crate::format::{format_bucket, format_expires};
-use crate::journal::Journal;
+use crate::journal::{state_lock, Journal};
 use crate::keychain::{
     resolve_claude_keychain_account_name, slot_service, KeychainStore, CANONICAL_SERVICE,
 };
@@ -77,14 +77,24 @@ pub fn run(
                 op_id: format!("usage-refresh-{}", chrono::Utc::now().timestamp_millis()),
                 timestamp_ms: chrono::Utc::now().timestamp_millis(),
             };
-            journal.write_entry(&entry)?;
+            // Serialize the 2-store write under the global state lock when
+            // touching the canonical active slot so we can't race with
+            // `refresh` or `use` in another process.
             if is_active {
-                kc.write(CANONICAL_SERVICE, &account, &new_bytes)?;
+                let mut lock_handle = state_lock(paths).context("open state lock")?;
+                let _guard = lock_handle.write().context("acquire state lock")?;
+
+                journal.write_entry(&entry)?;
+                kc.write(CANONICAL_SERVICE, &account, &new_bytes)
+                    .context("write canonical keychain")?;
                 crate::commands::atomic_write(&paths.claude_credentials_json, &new_bytes)?;
+                journal.clear(&name)?;
             } else {
-                kc.write(&slot_service(&name), &account, &new_bytes)?;
+                journal.write_entry(&entry)?;
+                kc.write(&slot_service(&name), &account, &new_bytes)
+                    .context("write slot keychain")?;
+                journal.clear(&name)?;
             }
-            journal.clear(&name)?;
 
             match oauth::usage(&client, &refreshed.oauth.access_token)? {
                 UsageResult::Ok(s) => s,
