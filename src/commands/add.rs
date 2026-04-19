@@ -9,7 +9,7 @@ use crate::credentials::Credentials;
 use crate::keychain::{
     resolve_claude_keychain_account_name, slot_service, KeychainStore, CANONICAL_SERVICE,
 };
-use crate::oauth::{self, UsageResult};
+use crate::oauth::{self, ProfileResult, UsageResult};
 use crate::slot::{
     derive_slot_name_from_email, validate_slot_name, SlotCatalog, SlotEntry, SlotError,
 };
@@ -47,13 +47,22 @@ pub fn run(args: &AddArgs, paths: &Paths, kc: &dyn KeychainStore) -> Result<Stri
 
     let mut creds = Credentials::from_bytes(&bytes)?;
 
-    // Best-effort: try to fill in email from the usage endpoint if the user
-    // didn't set one. We ignore any failure.
+    // Best-effort: fill in email from `/api/oauth/profile` (unlocked by the
+    // `user:profile` scope). Fall back to probing `/api/oauth/usage` for an
+    // email field in case the response shape changes. Any failure is ignored;
+    // the user can still pass `--name` explicitly.
     if creds.oauth.email.is_none() {
         if let Ok(client) = oauth::default_client() {
-            if let Ok(UsageResult::Ok(snap)) = oauth::usage(&client, &creds.oauth.access_token) {
-                if let Some(email) = snap.raw.get("email").and_then(|v| v.as_str()) {
-                    creds.oauth.email = Some(email.to_string());
+            if let Ok(ProfileResult::Ok(snap)) = oauth::profile(&client, &creds.oauth.access_token)
+            {
+                creds.oauth.email = snap.email;
+            }
+            if creds.oauth.email.is_none() {
+                if let Ok(UsageResult::Ok(snap)) = oauth::usage(&client, &creds.oauth.access_token)
+                {
+                    if let Some(email) = snap.raw.get("email").and_then(|v| v.as_str()) {
+                        creds.oauth.email = Some(email.to_string());
+                    }
                 }
             }
         }

@@ -164,14 +164,32 @@ impl KeychainStore for MacSecurityCli {
         let stdout = String::from_utf8(out.stdout).map_err(|_| KeychainError::Utf8)?;
         let trimmed = stdout.trim();
         if trimmed.is_empty() {
-            Ok(None)
-        } else {
-            Ok(Some(trimmed.as_bytes().to_vec()))
+            return Ok(None);
         }
+        // When the stored password is not printable ASCII, `security` emits
+        // `0x<hex>` instead of the raw text. We always write as `0x<hex>` (to
+        // avoid argv-truncation with multi-line JSON), so either form can come
+        // back here.
+        if let Some(body) = trimmed.strip_prefix("0x") {
+            if body.chars().all(|c| c.is_ascii_hexdigit()) {
+                let decoded =
+                    hex::decode(body).map_err(|_| KeychainError::CommandFailed("hex".into()))?;
+                return Ok(Some(decoded));
+            }
+        }
+        Ok(Some(trimmed.as_bytes().to_vec()))
     }
 
     fn write(&self, service: &str, account: &str, bytes: &[u8]) -> Result<(), KeychainError> {
-        let raw = std::str::from_utf8(bytes).map_err(|_| KeychainError::Utf8)?;
+        // Must be valid UTF-8 — our credentials payloads are JSON text.
+        std::str::from_utf8(bytes).map_err(|_| KeychainError::Utf8)?;
+        // The `security` CLI truncates multi-line `-w "<value>"` argv (observed:
+        // passing an 858-byte pretty-JSON payload results in roughly half of
+        // the bytes landing in the keychain entry). Workaround: pass the bytes
+        // as `0x<hex>` so argv contains a single short ASCII token. The
+        // keychain still stores the raw bytes, so `find-generic-password -w`
+        // returns the text unchanged.
+        let hex_arg = format!("0x{}", hex::encode(bytes));
         let out = std::process::Command::new("security")
             .arg("add-generic-password")
             .arg("-U")
@@ -180,7 +198,7 @@ impl KeychainStore for MacSecurityCli {
             .arg("-a")
             .arg(account)
             .arg("-w")
-            .arg(raw)
+            .arg(&hex_arg)
             .output()?;
         if !out.status.success() {
             let stderr = String::from_utf8_lossy(&out.stderr);

@@ -30,14 +30,32 @@ struct SlotRow {
     email: String,
     #[tabled(rename = "plan")]
     plan: String,
-    #[tabled(rename = "expires")]
-    expires: String,
     #[tabled(rename = "5h")]
     five_hour: String,
     #[tabled(rename = "7d")]
     seven_day: String,
-    #[tabled(rename = "7d opus")]
-    seven_day_opus: String,
+    #[tabled(rename = "expires")]
+    expires: String,
+}
+
+#[derive(Tabled)]
+struct SlotRowDetail {
+    #[tabled(rename = "")]
+    marker: String,
+    #[tabled(rename = "name")]
+    name: String,
+    #[tabled(rename = "email")]
+    email: String,
+    #[tabled(rename = "plan")]
+    plan: String,
+    #[tabled(rename = "5h")]
+    five_hour: String,
+    #[tabled(rename = "7d")]
+    seven_day: String,
+    #[tabled(rename = "7d sonnet")]
+    seven_day_sonnet: String,
+    #[tabled(rename = "expires")]
+    expires: String,
 }
 
 /// Format an expiry (unix milliseconds) as `"YYYY-MM-DD HH:MM KST / HH:MM UTC (expires in …)"`.
@@ -50,7 +68,12 @@ pub fn format_expires(ts_ms: Option<i64>) -> String {
         None => return "unknown".to_string(),
     };
     let kst = utc.with_timezone(&Seoul);
-    let rel = format_relative(utc, Utc::now(), "expires", "expired");
+    let rel = format_relative(
+        utc,
+        Utc::now(),
+        |d| format!("expires in {d}"),
+        |d| format!("expired {d} ago"),
+    );
     format!(
         "{} KST / {} UTC ({})",
         kst.format("%Y-%m-%d %H:%M"),
@@ -71,7 +94,12 @@ pub fn format_bucket(b: Option<&Bucket>) -> String {
     let tail = match b.resets_at {
         Some(t) => {
             let kst = t.with_timezone(&Seoul);
-            let rel = format_relative(t, Utc::now(), "in", "ago");
+            let rel = format_relative(
+                t,
+                Utc::now(),
+                |d| format!("in {d}"),
+                |d| format!("{d} ago"),
+            );
             format!(
                 " (resets {} KST / {} UTC, {})",
                 kst.format("%Y-%m-%d %H:%M"),
@@ -84,45 +112,76 @@ pub fn format_bucket(b: Option<&Bucket>) -> String {
     format!("{pct}{tail}")
 }
 
-fn format_relative(
-    target: DateTime<Utc>,
-    now: DateTime<Utc>,
-    future_label: &str,
-    past_label: &str,
-) -> String {
-    let delta = target - now;
-    let total = delta.num_seconds();
-    let (label, secs) = if total >= 0 {
-        (future_label, total)
-    } else {
-        (past_label, -total)
-    };
-    let hours = secs / 3600;
+/// Render `secs` as `Xd Yh ZZm`, trimming leading zero units.
+pub fn format_duration(secs: i64) -> String {
+    let secs = secs.max(0);
+    let days = secs / 86_400;
+    let hours = (secs % 86_400) / 3600;
     let mins = (secs % 3600) / 60;
-    match future_label == label {
-        true => format!("{future_label} in {hours}h{mins:02}m", future_label = label),
-        false => format!("{past_label} {hours}h{mins:02}m ago", past_label = label),
+    if days > 0 {
+        format!("{days}d {hours}h {mins:02}m")
+    } else if hours > 0 {
+        format!("{hours}h {mins:02}m")
+    } else {
+        format!("{mins}m")
     }
 }
 
-/// Render the slot list as a pretty table.
-pub fn list_table(entries: &[SlotView]) -> String {
-    let rows: Vec<SlotRow> = entries
-        .iter()
-        .map(|v| SlotRow {
-            marker: v.marker.to_string(),
-            name: v.name.clone(),
-            email: v.email.clone(),
-            plan: v.plan.clone(),
-            expires: v.expires_in.clone(),
-            five_hour: v.five_hour.clone(),
-            seven_day: v.seven_day.clone(),
-            seven_day_opus: v.seven_day_opus.clone(),
-        })
-        .collect();
-    let mut t = Table::new(rows);
-    t.with(Style::psql());
-    t.to_string()
+/// Render `target` relative to `now`. `future_tmpl` / `past_tmpl` each receive
+/// the pre-formatted duration string (e.g. `"3h 47m"`) and return the full
+/// phrase. This lets callers decide whether "in" or "ago" is wrapped around
+/// the duration without this helper hardcoding either preposition.
+fn format_relative(
+    target: DateTime<Utc>,
+    now: DateTime<Utc>,
+    future_tmpl: impl Fn(&str) -> String,
+    past_tmpl: impl Fn(&str) -> String,
+) -> String {
+    let total = (target - now).num_seconds();
+    if total >= 0 {
+        future_tmpl(&format_duration(total))
+    } else {
+        past_tmpl(&format_duration(-total))
+    }
+}
+
+/// Render the slot list as a pretty table. `detail` adds the `7d sonnet`
+/// (opus) bucket column.
+pub fn list_table(entries: &[SlotView], detail: bool) -> String {
+    if detail {
+        let rows: Vec<SlotRowDetail> = entries
+            .iter()
+            .map(|v| SlotRowDetail {
+                marker: v.marker.to_string(),
+                name: v.name.clone(),
+                email: v.email.clone(),
+                plan: v.plan.clone(),
+                five_hour: v.five_hour.clone(),
+                seven_day: v.seven_day.clone(),
+                seven_day_sonnet: v.seven_day_opus.clone(),
+                expires: v.expires_in.clone(),
+            })
+            .collect();
+        let mut t = Table::new(rows);
+        t.with(Style::psql());
+        t.to_string()
+    } else {
+        let rows: Vec<SlotRow> = entries
+            .iter()
+            .map(|v| SlotRow {
+                marker: v.marker.to_string(),
+                name: v.name.clone(),
+                email: v.email.clone(),
+                plan: v.plan.clone(),
+                five_hour: v.five_hour.clone(),
+                seven_day: v.seven_day.clone(),
+                expires: v.expires_in.clone(),
+            })
+            .collect();
+        let mut t = Table::new(rows);
+        t.with(Style::psql());
+        t.to_string()
+    }
 }
 
 /// Render the slot list as a JSON value (for `--format json`).
