@@ -158,16 +158,27 @@ Claude Code sees a token that the Keychain has invalidated**.
 ## 12. CLI surface
 
 ```
-claude-token add [--from keychain|file] [--name <slug>]
+claude-token add [--from keychain|file] [--path <file>] [--name <slug>]
 claude-token                                     (= claude-token list)
-claude-token list                                [--format pretty|json]
+claude-token list                                [--format pretty|json] [--debug] [--detail] [--no-usage]
 claude-token use <name|#N>
-claude-token refresh [<name>|--all]
+claude-token refresh [<name>|--all] [--force]
 claude-token usage [<name>]                      [--format pretty|json]
 claude-token daemon
+claude-token export <name|#N> [--path <file>]
+claude-token remove <name|#N> [--yes]
 ```
 
 Global flags: `--format {pretty,json}`, `-v` (info), `-vv` (debug).
+
+### 12.1 Read-only and destructive subcommands
+
+- **`export`** — copy a slot's stored credentials to a file (default `~/.claude/.credentials.json`). Read-only against the catalog and keychain: no journal entry, no active-slot swap, no write to canonical. For the **active** slot the source of truth is the canonical keychain entry (§8), so `export` reads canonical first and falls back to the slot archive only if canonical is missing. For inactive slots it reads the archive at `claude-token-cli::<slot>`.
+- **`remove`** — delete a slot. Archive blob at `claude-token-cli::<slot>` is always dropped. When the removed slot is **active**, the canonical keychain entry and `~/.claude/.credentials.json` are also cleaned so Claude Code is not left with orphan bytes whose archive companion no longer exists. The critical section holds the `state_lock` from §7 to prevent interleaving with an in-flight `use` or `refresh`.
+- **`list` flags**:
+  - `--debug` — dump every resolved path, catalog entry, and raw keychain/disk payload byte-for-byte. Tokens are **not redacted** — intended for local inspection only.
+  - `--detail` — show the Opus-only weekly bucket as an extra `7d sonnet` column.
+  - `--no-usage` — skip the per-slot `/api/oauth/usage` round-trip (offline / rate-limited environments).
 
 ## 13. Test strategy
 
@@ -211,6 +222,8 @@ Global flags: `--format {pretty,json}`, `-v` (info), `-vv` (debug).
 │   └── commands/
 │       ├── mod.rs
 │       ├── add.rs · list.rs · use_.rs · refresh.rs · usage.rs · daemon.rs
+│       ├── export.rs · remove.rs
+│       └── replay.rs
 └── tests/
     ├── roundtrip.rs · journal_replay.rs · keychain_swap.rs
     └── refresh_mock.rs · usage_mock.rs · redaction.rs

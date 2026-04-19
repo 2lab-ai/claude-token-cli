@@ -112,13 +112,41 @@ fn debug_dump(paths: &Paths, kc: &dyn KeychainStore) -> Result<String> {
     writeln!(out)?;
 
     writeln!(out, "[paths]")?;
-    writeln!(out, "  config_dir              = {}", paths.config_dir.display())?;
-    writeln!(out, "  data_dir                = {}", paths.data_dir.display())?;
-    writeln!(out, "  slots_json              = {}", paths.slots_json.display())?;
-    writeln!(out, "  journal_dir             = {}", paths.journal_dir.display())?;
-    writeln!(out, "  hmac_key                = {}", paths.hmac_key.display())?;
-    writeln!(out, "  daemon_lock             = {}", paths.daemon_lock.display())?;
-    writeln!(out, "  state_lock              = {}", paths.state_lock.display())?;
+    writeln!(
+        out,
+        "  config_dir              = {}",
+        paths.config_dir.display()
+    )?;
+    writeln!(
+        out,
+        "  data_dir                = {}",
+        paths.data_dir.display()
+    )?;
+    writeln!(
+        out,
+        "  slots_json              = {}",
+        paths.slots_json.display()
+    )?;
+    writeln!(
+        out,
+        "  journal_dir             = {}",
+        paths.journal_dir.display()
+    )?;
+    writeln!(
+        out,
+        "  hmac_key                = {}",
+        paths.hmac_key.display()
+    )?;
+    writeln!(
+        out,
+        "  daemon_lock             = {}",
+        paths.daemon_lock.display()
+    )?;
+    writeln!(
+        out,
+        "  state_lock              = {}",
+        paths.state_lock.display()
+    )?;
     writeln!(
         out,
         "  claude_credentials_json = {}",
@@ -139,7 +167,11 @@ fn debug_dump(paths: &Paths, kc: &dyn KeychainStore) -> Result<String> {
     dump_keychain_entry(&mut out, kc, CANONICAL_SERVICE, &account)?;
     writeln!(out)?;
 
-    writeln!(out, "[disk credentials]  {}", paths.claude_credentials_json.display())?;
+    writeln!(
+        out,
+        "[disk credentials]  {}",
+        paths.claude_credentials_json.display()
+    )?;
     match std::fs::read(&paths.claude_credentials_json) {
         Ok(bytes) => dump_bytes(&mut out, &bytes)?,
         Err(e) => writeln!(out, "  <missing or unreadable: {e}>")?,
@@ -149,7 +181,13 @@ fn debug_dump(paths: &Paths, kc: &dyn KeychainStore) -> Result<String> {
     for (i, s) in cat.slots.iter().enumerate() {
         let svc = slot_service(&s.name);
         let is_active = cat.active.as_deref() == Some(s.name.as_str());
-        writeln!(out, "[slot #{}]  name = {}  active = {}", i + 1, s.name, is_active)?;
+        writeln!(
+            out,
+            "[slot #{}]  name = {}  active = {}",
+            i + 1,
+            s.name,
+            is_active
+        )?;
         writeln!(out, "  email             = {:?}", s.email)?;
         writeln!(out, "  subscription_type = {:?}", s.subscription_type)?;
         writeln!(out, "  created_at_ms     = {}", s.created_at)?;

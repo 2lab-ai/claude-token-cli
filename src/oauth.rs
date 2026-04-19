@@ -73,9 +73,13 @@ pub struct ProfileSnapshot {
 }
 
 /// Profile call outcome.
+///
+/// `ProfileSnapshot` is ~240 bytes (7 `Option<String>` + a `serde_json::Value`),
+/// so boxing the payload keeps the enum small and silences
+/// `clippy::large_enum_variant`.
 #[derive(Debug)]
 pub enum ProfileResult {
-    Ok(ProfileSnapshot),
+    Ok(Box<ProfileSnapshot>),
     Unauthorized,
 }
 
@@ -263,7 +267,7 @@ pub fn profile_from(
         rate_limit_tier: pick_str(org, "rate_limit_tier"),
         raw: root,
     };
-    Ok(ProfileResult::Ok(snap))
+    Ok(ProfileResult::Ok(Box::new(snap)))
 }
 
 fn parse_bucket(v: Option<&Value>) -> Option<Bucket> {

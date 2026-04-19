@@ -171,7 +171,10 @@ fn main() -> Result<()> {
 
     let fmt: Format = cli.format.into();
 
-    match cli.command.unwrap_or_else(|| Command::List(ListCliArgs::default())) {
+    match cli
+        .command
+        .unwrap_or_else(|| Command::List(ListCliArgs::default()))
+    {
         Command::Add(a) => {
             let from = match a.from.to_ascii_lowercase().as_str() {
                 "keychain" => AddSource::Keychain,

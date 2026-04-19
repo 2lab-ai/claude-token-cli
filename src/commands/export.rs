@@ -28,22 +28,24 @@ pub fn run(args: &ExportArgs, paths: &Paths, kc: &dyn KeychainStore) -> Result<P
 
     let account = resolve_claude_keychain_account_name();
 
-    let bytes = match kc
-        .read(&slot_service(&target.name), &account)
-        .context("read slot keychain entry")?
-    {
-        Some(b) => b,
-        None => {
-            if cat.active.as_deref() == Some(target.name.as_str()) {
-                kc.read(CANONICAL_SERVICE, &account)
-                    .context("read canonical keychain entry")?
-                    .ok_or_else(|| {
-                        anyhow!("no stored credentials for slot {}", target.name)
-                    })?
-            } else {
-                return Err(anyhow!("no stored credentials for slot {}", target.name));
-            }
-        }
+    // Per SPEC §8, the active slot's authoritative source is the canonical
+    // keychain entry (refresh_one writes canonical + disk for active, and only
+    // archives for inactive). Reading the archive first would hand back stale
+    // bytes for the active slot whenever a refresh has happened since the last
+    // `use` swap. So: canonical-first for active, archive-only for inactive.
+    let bytes = if cat.active.as_deref() == Some(target.name.as_str()) {
+        kc.read(CANONICAL_SERVICE, &account)
+            .context("read canonical keychain entry")?
+            .or_else(|| {
+                kc.read(&slot_service(&target.name), &account)
+                    .ok()
+                    .flatten()
+            })
+            .ok_or_else(|| anyhow!("no stored credentials for slot {}", target.name))?
+    } else {
+        kc.read(&slot_service(&target.name), &account)
+            .context("read slot keychain entry")?
+            .ok_or_else(|| anyhow!("no stored credentials for slot {}", target.name))?
     };
 
     let out_path = args

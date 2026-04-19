@@ -26,12 +26,14 @@ Release binaries and `crates.io` publish are tracked for PR2.
 
 | Command | Description |
 |---|---|
-| `claude-token add [--from keychain\|file] [--name <slug>]` | Register the current source (Keychain on macOS, file elsewhere) as a slot. Name defaults to the email local-part. |
-| `claude-token` / `claude-token list [--format pretty\|json]` | Show all slots: `[*] active`, name, email, plan, `expires (KST+UTC+relative)`, `5h %`, `7d %`, `7d_sonnet %`. |
+| `claude-token add [--from keychain\|file] [--path <file>] [--name <slug>]` | Register the current source (Keychain on macOS, file elsewhere) as a slot. Name defaults to the email local-part. |
+| `claude-token` / `claude-token list [--format pretty\|json] [--debug] [--detail] [--no-usage]` | Show all slots: `[*] active`, name, email, plan, `expires (KST+UTC+relative)`, `5h %`, `7d %`. `--detail` adds a `7d sonnet` column. `--no-usage` skips the per-slot usage API round-trip. `--debug` dumps raw paths + catalog entries + keychain payloads byte-for-byte (tokens **not redacted** — local inspection only). |
 | `claude-token use <name\|#N>` | Swap the active slot — updates `.credentials.json` **and** macOS Keychain atomically. |
-| `claude-token refresh [<name>\|--all]` | Force a refresh. Default is the active slot only. |
+| `claude-token refresh [<name>\|--all] [--force]` | Force a refresh. Default is the active slot only. `--force` bypasses the 7h proactive check. |
 | `claude-token usage [<name>] [--format pretty\|json]` | Latest `5h / 7d / 7d_sonnet` snapshot. |
 | `claude-token daemon` | Foreground refresh loop. Launched by `launchd` / `cron` (samples below). |
+| `claude-token export <name\|#N> [--path <file>]` | Copy a slot's stored credentials to a file (default `~/.claude/.credentials.json`). Read-only — no swap, no journal. Active slot reads the canonical keychain first; inactive slots read the archive at `claude-token-cli::<slot>`. |
+| `claude-token remove <name\|#N> [--yes]` | Delete a slot. The archive blob is always dropped; when the removed slot is **active**, the canonical keychain entry and `~/.claude/.credentials.json` are cleaned too so Claude Code is not left pointing at orphan bytes. |
 
 Global flags: `--format {pretty,json}`, `-v` / `-vv` (log level).
 

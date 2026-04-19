@@ -94,12 +94,7 @@ pub fn format_bucket(b: Option<&Bucket>) -> String {
     let tail = match b.resets_at {
         Some(t) => {
             let kst = t.with_timezone(&Seoul);
-            let rel = format_relative(
-                t,
-                Utc::now(),
-                |d| format!("in {d}"),
-                |d| format!("{d} ago"),
-            );
+            let rel = format_relative(t, Utc::now(), |d| format!("in {d}"), |d| format!("{d} ago"));
             format!(
                 " (resets {} KST / {} UTC, {})",
                 kst.format("%Y-%m-%d %H:%M"),
