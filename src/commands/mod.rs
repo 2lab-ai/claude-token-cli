@@ -5,8 +5,10 @@
 
 pub mod add;
 pub mod daemon;
+pub mod export;
 pub mod list;
 pub mod refresh;
+pub mod remove;
 pub mod usage;
 #[path = "use_.rs"]
 pub mod r#use;

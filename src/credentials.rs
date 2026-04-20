@@ -307,6 +307,27 @@ mod tests {
     }
 
     #[test]
+    fn serialize_emits_both_oauth_and_extra() {
+        let input = r#"{
+  "claudeAiOauth": {
+    "accessToken": "at",
+    "refreshToken": "rt",
+    "scopes": []
+  },
+  "mcpOAuth": {"abc": {"k": 1}}
+}
+"#;
+        let c = Credentials::from_bytes(input.as_bytes()).unwrap();
+        let out = String::from_utf8(c.to_bytes().unwrap()).unwrap();
+        assert!(
+            out.contains("claudeAiOauth"),
+            "claudeAiOauth must survive re-serialization; got: {out}"
+        );
+        assert!(out.contains("mcpOAuth"), "mcpOAuth must survive: {out}");
+        assert!(out.contains("\"accessToken\""));
+    }
+
+    #[test]
     fn preserves_unknown_oauth_field() {
         let input = r#"{
   "claudeAiOauth": {

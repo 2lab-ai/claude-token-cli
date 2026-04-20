@@ -18,6 +18,7 @@ use crate::redact::{scrub, RedactedString};
 pub const CLIENT_ID: &str = "9d1c250a-e61b-44d9-88ed-5944d1962f5e";
 pub const TOKEN_URL: &str = "https://platform.claude.com/v1/oauth/token";
 pub const USAGE_URL: &str = "https://api.anthropic.com/api/oauth/usage";
+pub const PROFILE_URL: &str = "https://api.anthropic.com/api/oauth/profile";
 pub const BETA_HEADER: (&str, &str) = ("anthropic-beta", "oauth-2025-04-20");
 pub const USER_AGENT: &str = "claude-token-cli/0.1";
 
@@ -55,6 +56,30 @@ pub struct UsageSnapshot {
 #[derive(Debug)]
 pub enum UsageResult {
     Ok(UsageSnapshot),
+    Unauthorized,
+}
+
+/// Parsed `/api/oauth/profile` response.
+#[derive(Debug, Clone, Default)]
+pub struct ProfileSnapshot {
+    pub email: Option<String>,
+    pub full_name: Option<String>,
+    pub display_name: Option<String>,
+    pub account_uuid: Option<String>,
+    pub organization_name: Option<String>,
+    pub organization_type: Option<String>,
+    pub rate_limit_tier: Option<String>,
+    pub raw: Value,
+}
+
+/// Profile call outcome.
+///
+/// `ProfileSnapshot` is ~240 bytes (7 `Option<String>` + a `serde_json::Value`),
+/// so boxing the payload keeps the enum small and silences
+/// `clippy::large_enum_variant`.
+#[derive(Debug)]
+pub enum ProfileResult {
+    Ok(Box<ProfileSnapshot>),
     Unauthorized,
 }
 
@@ -179,6 +204,70 @@ pub fn usage_from(
         raw: root,
     };
     Ok(UsageResult::Ok(snap))
+}
+
+/// GET `api/oauth/profile`. Returns account + organization info tied to the
+/// token. `Unauthorized` for 401 (caller should refresh).
+pub fn profile(
+    client: &reqwest::blocking::Client,
+    access_token: &SecretString,
+) -> Result<ProfileResult, OAuthError> {
+    profile_from(client, PROFILE_URL, access_token)
+}
+
+/// Like [`profile`] but lets the caller override the endpoint.
+pub fn profile_from(
+    client: &reqwest::blocking::Client,
+    endpoint: &str,
+    access_token: &SecretString,
+) -> Result<ProfileResult, OAuthError> {
+    let resp = client
+        .get(endpoint)
+        .header("Accept", "application/json")
+        .header("Content-Type", "application/json")
+        .header(BETA_HEADER.0, BETA_HEADER.1)
+        .bearer_auth(access_token.expose_secret())
+        .send()
+        .map_err(|e| OAuthError::Network(e.to_string()))?;
+
+    let status = resp.status();
+    if status.as_u16() == 401 {
+        return Ok(ProfileResult::Unauthorized);
+    }
+    let text = resp
+        .text()
+        .map_err(|e| OAuthError::Network(e.to_string()))?;
+
+    if !status.is_success() {
+        return Err(OAuthError::Status {
+            code: status.as_u16(),
+            body: RedactedString::new(scrub(&truncate_chars(&text, 200))),
+        });
+    }
+    let root: Value =
+        serde_json::from_str(&text).map_err(|e| OAuthError::BadJson(e.to_string()))?;
+
+    let account = root.get("account");
+    let org = root.get("organization");
+    let pick_str = |node: Option<&Value>, key: &str| -> Option<String> {
+        node.and_then(|n| n.get(key))
+            .and_then(|v| v.as_str())
+            .map(|s| s.to_string())
+    };
+
+    let email = pick_str(account, "email_address").or_else(|| pick_str(account, "email"));
+
+    let snap = ProfileSnapshot {
+        email,
+        full_name: pick_str(account, "full_name"),
+        display_name: pick_str(account, "display_name"),
+        account_uuid: pick_str(account, "uuid"),
+        organization_name: pick_str(org, "name"),
+        organization_type: pick_str(org, "organization_type"),
+        rate_limit_tier: pick_str(org, "rate_limit_tier"),
+        raw: root,
+    };
+    Ok(ProfileResult::Ok(Box::new(snap)))
 }
 
 fn parse_bucket(v: Option<&Value>) -> Option<Bucket> {

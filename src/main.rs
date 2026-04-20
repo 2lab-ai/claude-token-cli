@@ -9,9 +9,11 @@ use tracing_subscriber::EnvFilter;
 use claude_token_cli::commands::{
     add::{self as add_cmd, AddArgs, AddSource},
     daemon as daemon_cmd,
+    export::{self as export_cmd, ExportArgs},
     list::{self as list_cmd, ListArgs},
     r#use as use_cmd,
     refresh::{self as refresh_cmd, RefreshArgs},
+    remove::{self as remove_cmd, RemoveArgs},
     replay,
     usage::{self as usage_cmd, UsageCmdArgs},
     Format,
@@ -40,7 +42,7 @@ enum Command {
     /// Register a slot (from the keychain or a file).
     Add(AddCliArgs),
     /// List slots (default subcommand).
-    List,
+    List(ListCliArgs),
     /// Switch the active slot.
     Use(UseCliArgs),
     /// Refresh OAuth tokens for a slot or all.
@@ -49,6 +51,10 @@ enum Command {
     Usage(UsageCliArgs),
     /// Run the background refresher daemon.
     Daemon,
+    /// Write a slot's credentials to disk (default: `~/.claude/.credentials.json`).
+    Export(ExportCliArgs),
+    /// Remove a slot (catalog entry + keychain blob).
+    Remove(RemoveCliArgs),
 }
 
 #[derive(clap::Args, Debug)]
@@ -62,6 +68,20 @@ struct AddCliArgs {
     /// Explicit slot name (otherwise derived from email).
     #[arg(long)]
     name: Option<String>,
+}
+
+#[derive(clap::Args, Debug, Default)]
+struct ListCliArgs {
+    /// Dump every path, catalog entry, and raw keychain/disk byte for inspection.
+    /// Prints tokens unredacted — use only locally.
+    #[arg(long)]
+    debug: bool,
+    /// Include the opus-only weekly bucket column (labeled `7d sonnet`).
+    #[arg(long)]
+    detail: bool,
+    /// Skip the per-slot `/api/oauth/usage` call.
+    #[arg(long)]
+    no_usage: bool,
 }
 
 #[derive(clap::Args, Debug)]
@@ -86,6 +106,24 @@ struct RefreshCliArgs {
 struct UsageCliArgs {
     /// Slot name (default: active).
     selector: Option<String>,
+}
+
+#[derive(clap::Args, Debug)]
+struct ExportCliArgs {
+    /// Slot name or `#N` index.
+    selector: String,
+    /// Target file (default: `~/.claude/.credentials.json`).
+    #[arg(long)]
+    path: Option<PathBuf>,
+}
+
+#[derive(clap::Args, Debug)]
+struct RemoveCliArgs {
+    /// Slot name or `#N` index.
+    selector: String,
+    /// Skip the confirmation prompt.
+    #[arg(long)]
+    yes: bool,
 }
 
 #[derive(Debug, Clone, Copy, clap::ValueEnum)]
@@ -133,7 +171,10 @@ fn main() -> Result<()> {
 
     let fmt: Format = cli.format.into();
 
-    match cli.command.unwrap_or(Command::List) {
+    match cli
+        .command
+        .unwrap_or_else(|| Command::List(ListCliArgs::default()))
+    {
         Command::Add(a) => {
             let from = match a.from.to_ascii_lowercase().as_str() {
                 "keychain" => AddSource::Keychain,
@@ -147,8 +188,13 @@ fn main() -> Result<()> {
             let name = add_cmd::run(&args, &paths, kc.as_ref())?;
             println!("added slot: {name}");
         }
-        Command::List => {
-            let args = ListArgs { format: fmt };
+        Command::List(l) => {
+            let args = ListArgs {
+                format: fmt,
+                debug: l.debug,
+                detail: l.detail,
+                no_usage: l.no_usage,
+            };
             let out = list_cmd::run(&args, &paths, kc.as_ref())?;
             println!("{out}");
         }
@@ -175,6 +221,22 @@ fn main() -> Result<()> {
         }
         Command::Daemon => {
             daemon_cmd::run(&paths, kc.as_ref(), &journal)?;
+        }
+        Command::Export(e) => {
+            let args = ExportArgs {
+                selector: e.selector,
+                path: e.path,
+            };
+            let out = export_cmd::run(&args, &paths, kc.as_ref())?;
+            println!("exported to: {}", out.display());
+        }
+        Command::Remove(r) => {
+            let args = RemoveArgs {
+                selector: r.selector,
+                yes: r.yes,
+            };
+            let name = remove_cmd::run(&args, &paths, kc.as_ref())?;
+            println!("removed slot: {name}");
         }
     }
 
